@@ -1,2 +1,2 @@
 # blog-projet
-projet de blog developpe pour apprendre et pratique le developpement web 
+projet de blog developpe pour apprendre et pratiquer le developpement web 
