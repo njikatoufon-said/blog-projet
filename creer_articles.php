@@ -6,8 +6,8 @@ include("connexion.php");
 $categoriesQuery = $conn->query("SELECT * FROM categories ORDER BY nom ASC");
 $categories = $categoriesQuery->fetchAll(PDO::FETCH_ASSOC);
 
-// Récupérer l'ID de l'utilisateur connecté (adapter selon votre système de session)
-$userId = $_SESSION['user_id'] ?? $_SESSION['id_utilisateur'] ?? 1; // Par défaut ID 1 si non connecté
+// Récupérer l'ID de l'utilisateur connecté
+$userId = $_SESSION['user_id'] ?? $_SESSION['id_utilisateur'] ?? 1;
 
 $message = '';
 $error = '';
@@ -27,8 +27,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     } elseif (empty($id_categories)) {
         $error = "Veuillez sélectionner une catégorie";
     } else {
-        // Générer un slug à partir du titre
+        // Image par défaut si aucune image n'est fournie
+        if (empty($image_couverture)) {
+            $image_couverture = 'images/default.png'; // Chemin vers votre image par défaut
+        }
+        
+        // Générer un slug unique
         $slug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $titre), '-'));
+        
+        // Ajouter un timestamp pour garantir l'unicité du slug
+        $slug = $slug . '-' . time();
         
         try {
             $stmt = $conn->prepare("INSERT INTO article (titre, slug, contenu, image_couverture, id_utilisateur, id_categories, date_creation, vues) 
@@ -48,7 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             // Redirection après 2 secondes
             header("refresh:2;url=accueil.php");
         } catch (PDOException $e) {
-            $error = "Erreur lors de la création de l'article : " . $e->getMessage();
+            // Gestion spécifique de l'erreur de doublon
+            if ($e->getCode() == 23000) {
+                $error = "Un article similaire existe déjà dans cette catégorie. Veuillez modifier le titre ou choisir une autre catégorie.";
+            } else {
+                $error = "Erreur lors de la création de l'article : " . $e->getMessage();
+            }
         }
     }
 }
@@ -137,6 +150,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         .required {
             color: #ef4444;
+        }
+
+        .field-info {
+            display: block;
+            font-size: 0.85rem;
+            color: #6b7280;
+            margin-top: 0.25rem;
+            font-style: italic;
         }
 
         input[type="text"],
@@ -240,6 +261,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             opacity: 0.8;
         }
 
+        .default-image-notice {
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 0.5rem 0.75rem;
+            border-radius: 5px;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+            display: inline-block;
+        }
+
         @media (max-width: 768px) {
             body {
                 padding: 1rem;
@@ -312,7 +343,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                 <div class="form-group">
                     <label for="image_couverture">
-                        URL de l'image de couverture
+                        URL de l'image de couverture (optionnel)
                     </label>
                     <input 
                         type="url" 
@@ -321,11 +352,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         placeholder="https://exemple.com/image.jpg"
                         value="<?php echo htmlspecialchars($_POST['image_couverture'] ?? ''); ?>"
                         onchange="previewImage(this.value)"
+                        oninput="updateDefaultNotice()"
                     >
+                    <small class="field-info">💡 Si vous ne fournissez pas d'image, une image par défaut sera utilisée</small>
                     
-                    <div id="imagePreview" class="preview-section" style="display: none;">
+                    <div id="imagePreview" class="preview-section" style="display: block;">
                         <div class="preview-title">Aperçu de l'image :</div>
-                        <img id="previewImg" class="image-preview" src="" alt="Aperçu">
+                        <img id="previewImg" class="image-preview" 
+                             src="images/default.png"
+                             onerror="this.onerror=null; this.src='https://via.placeholder.com/800x400/667eea/ffffff?text=Image+par+défaut';" 
+                             alt="Aperçu">
+                        <div id="defaultNotice" class="default-image-notice">
+                            ℹ️ Image par défaut utilisée
+                        </div>
                     </div>
                 </div>
 
@@ -345,7 +384,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <button type="submit" class="btn-primary">
                         ✓ Publier l'article
                     </button>
-                    <button type="reset" class="btn-secondary">
+                    <button type="reset" class="btn-secondary" onclick="resetPreview()">
                         ↺ Réinitialiser
                     </button>
                 </div>
@@ -357,17 +396,55 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         function previewImage(url) {
             const previewDiv = document.getElementById('imagePreview');
             const previewImg = document.getElementById('previewImg');
+            const defaultNotice = document.getElementById('defaultNotice');
             
             if (url && url.trim() !== '') {
                 previewImg.src = url;
                 previewDiv.style.display = 'block';
+                defaultNotice.style.display = 'none';
                 
                 previewImg.onerror = function() {
-                    previewDiv.style.display = 'none';
+                    // Si l'image ne charge pas, afficher l'image par défaut
+                    previewImg.src = 'images/default.jpg';
+                    defaultNotice.style.display = 'inline-block';
+                    defaultNotice.textContent = '⚠️ URL invalide - Image par défaut utilisée';
+                    defaultNotice.style.background = '#fef3c7';
+                    defaultNotice.style.color = '#92400e';
+                };
+                
+                previewImg.onload = function() {
+                    // Image chargée avec succès
+                    defaultNotice.style.display = 'none';
                 };
             } else {
-                previewDiv.style.display = 'none';
+                // Aucune URL - afficher l'image par défaut
+                previewImg.src = 'images/default.png';
+                previewDiv.style.display = 'block';
+                defaultNotice.style.display = 'inline-block';
+                defaultNotice.textContent = 'ℹ️ Image par défaut utilisée';
+                defaultNotice.style.background = '#dbeafe';
+                defaultNotice.style.color = '#1e40af';
             }
+        }
+
+        function updateDefaultNotice() {
+            const imageInput = document.getElementById('image_couverture');
+            previewImage(imageInput.value);
+        }
+
+        function resetPreview() {
+            setTimeout(function() {
+                const previewImg = document.getElementById('previewImg');
+                const defaultNotice = document.getElementById('defaultNotice');
+                const previewDiv = document.getElementById('imagePreview');
+                
+                previewImg.src = 'images/default.jpg';
+                previewDiv.style.display = 'block';
+                defaultNotice.style.display = 'inline-block';
+                defaultNotice.textContent = 'ℹ️ Image par défaut utilisée';
+                defaultNotice.style.background = '#dbeafe';
+                defaultNotice.style.color = '#1e40af';
+            }, 50);
         }
 
         // Prévisualiser l'image au chargement si elle existe
@@ -375,6 +452,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             const imageInput = document.getElementById('image_couverture');
             if (imageInput.value) {
                 previewImage(imageInput.value);
+            } else {
+                previewImage(''); // Afficher l'image par défaut
             }
         };
     </script>
